@@ -446,6 +446,8 @@ struct MediaCodec::ResourceManagerServiceProxy :
     void notifyClientStopped(ClientConfigParcel& clientConfig);
     void notifyClientConfigChanged(ClientConfigParcel& clientConfig);
 
+    uid_t clientUid() const { return mUid; }
+
     inline void setCodecName(const char* name) {
         mCodecName = name;
     }
@@ -3008,7 +3010,34 @@ status_t MediaCodec::configure(
     }
 
     sp<AMessage> msg = new AMessage(kWhatConfigure, this);
-    msg->setMessage("format", format);
+    // Lenovo SM8850 video MEMC: the device controller publishes a volatile
+    // enable bit for the attributed codec client UID. Missing properties are OFF.
+    // Keep this at configure time: this VPP implementation cannot enable FRC
+    // after decoding has started. Exclude protected/tunneled/HDR playback.
+    sp<AMessage> codecFormat = format;
+    int32_t tunneled = 0;
+    int32_t transfer = 0;
+    format->findInt32("feature-tunneled-playback", &tunneled);
+    format->findInt32("color-transfer", &transfer);
+    const int32_t clientUid = mResourceManagerProxy->clientUid();
+    const std::string memcKey = base::StringPrintf("sys.lenovo.memc.%d", clientUid);
+    if (!(flags & CONFIGURE_FLAG_ENCODE) && surface != nullptr
+            && crypto == nullptr && descrambler == nullptr && !(mFlags & kFlagIsSecure)
+            && !tunneled && transfer != 6 && transfer != 7
+            && (mComponentName == "c2.qti.avc.decoder"
+                || mComponentName == "c2.qti.hevc.decoder"
+                || mComponentName == "c2.qti.av1.decoder"
+                || mComponentName == "c2.qti.vp9.decoder")
+            && property_get_bool(memcKey.c_str(), false)) {
+        codecFormat = format->dup();
+        codecFormat->setString("vendor.qti-ext-vpp.mode", "HQV_MODE_MANUAL");
+        codecFormat->setString("vendor.qti-ext-vpp-frc.mode", "FRC_MODE_SMOOTH_MOTION");
+        codecFormat->setString("vendor.qti-ext-vpp-frc.level", "FRC_LEVEL_HIGH");
+        codecFormat->setString("vendor.qti-ext-vpp-frc.interp", "FRC_INTERP_2X");
+        ALOGI("Lenovo video MEMC: configuring 2X for uid %d (%s)",
+                clientUid, mComponentName.c_str());
+    }
+    msg->setMessage("format", codecFormat);
     msg->setInt32("flags", flags);
     msg->setObject("surface", surface);
 
