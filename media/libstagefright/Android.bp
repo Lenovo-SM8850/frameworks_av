@@ -248,6 +248,7 @@ cc_library {
 
     defaults: [
         "dolby_ac4_table_defaults",
+        "codec_playback_policy_defaults",
         "libaudioclient_client",
     ],
 
@@ -426,4 +427,12 @@ cc_library {
             "unsigned-integer-overflow",
         ],
     },
+}
+
+cc_defaults {
+    name: "codec_playback_policy_defaults",
+    cflags: select(soong_config_variable("media_codec_policy", "memc"), {
+        "qti_2x": ["-DMEDIA_CODEC_QTI_2X_POLICY"],
+        default: [],
+    }),
 }
