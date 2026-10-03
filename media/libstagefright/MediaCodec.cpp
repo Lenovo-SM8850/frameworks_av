@@ -31,6 +31,7 @@
 #include <C2Buffer.h>
 
 #include "include/SoftwareRenderer.h"
+#include "include/CodecPlaybackPolicy.h"
 
 #include <android_media_codec.h>
 #include <android_media_tv_flags.h>
@@ -445,6 +446,8 @@ struct MediaCodec::ResourceManagerServiceProxy :
     void notifyClientStarted(ClientConfigParcel& clientConfig);
     void notifyClientStopped(ClientConfigParcel& clientConfig);
     void notifyClientConfigChanged(ClientConfigParcel& clientConfig);
+
+    uid_t clientUid() const { return mUid; }
 
     inline void setCodecName(const char* name) {
         mCodecName = name;
@@ -3008,7 +3011,29 @@ status_t MediaCodec::configure(
     }
 
     sp<AMessage> msg = new AMessage(kWhatConfigure, this);
-    msg->setMessage("format", format);
+    // The playback controller publishes a volatile
+    // enable bit for the attributed codec client UID. Missing properties are OFF.
+    // Keep this at configure time: this VPP implementation cannot enable FRC
+    // after decoding has started. Exclude protected/tunneled/HDR playback.
+    sp<AMessage> codecFormat = format;
+    int32_t tunneled = 0;
+    int32_t transfer = 0;
+    format->findInt32("feature-tunneled-playback", &tunneled);
+    format->findInt32("color-transfer", &transfer);
+    const int32_t clientUid = mResourceManagerProxy->clientUid();
+    const std::string memcKey = codecplaybackpolicy::frameInterpolationKey(clientUid);
+    if (!(flags & CONFIGURE_FLAG_ENCODE) && surface != nullptr
+            && crypto == nullptr && descrambler == nullptr && !(mFlags & kFlagIsSecure)
+            && !tunneled && transfer != ColorUtils::kColorTransferST2084
+            && transfer != ColorUtils::kColorTransferHLG
+            && codecplaybackpolicy::supportsFrameInterpolation(mComponentName.c_str())
+            && property_get_bool(memcKey.c_str(), false)) {
+        codecFormat = format->dup();
+        codecplaybackpolicy::applyFrameInterpolation(codecFormat);
+        ALOGI("Lenovo video MEMC: configuring 2X for uid %d (%s)",
+                clientUid, mComponentName.c_str());
+    }
+    msg->setMessage("format", codecFormat);
     msg->setInt32("flags", flags);
     msg->setObject("surface", surface);
 
