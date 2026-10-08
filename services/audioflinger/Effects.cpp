@@ -3011,9 +3011,9 @@ bool EffectChain::isEffectEligibleForSuspend(const effect_descriptor_t& desc)
           (memcmp(&desc.type, SL_IID_VISUALIZATION, sizeof(effect_uuid_t)) == 0) ||
           (memcmp(&desc.type, SL_IID_VOLUME, sizeof(effect_uuid_t)) == 0) ||
           (memcmp(&desc.type, SL_IID_DAP, sizeof(effect_uuid_t)) == 0) ||
-          (memcmp(&desc.type, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0) ||
-          (memcmp(&desc.type, SL_V4A_RE, sizeof(effect_uuid_t)) == 0) ||
-          (memcmp(&desc.type, SL_AXFX, sizeof(effect_uuid_t)) == 0) ||
+          (memcmp(&desc.uuid, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0) ||
+          (memcmp(&desc.uuid, SL_V4A_RE, sizeof(effect_uuid_t)) == 0) ||
+          (memcmp(&desc.uuid, SL_AXFX, sizeof(effect_uuid_t)) == 0) ||
           (memcmp(&desc.type, SL_IID_DYNAMICSPROCESSING, sizeof(effect_uuid_t)) == 0)))) {
         return false;
     }
