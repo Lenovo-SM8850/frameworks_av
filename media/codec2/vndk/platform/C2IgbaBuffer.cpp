@@ -296,6 +296,11 @@ c2_status_t C2IgbaBlockPool::_fetchGraphicBlock(
     }
 }
 
+std::shared_ptr<aidl::android::hardware::media::c2::IGraphicBufferAllocator>
+C2IgbaBlockPool::getIgba() {
+    return mIgba ? mIgba->getIgba() : nullptr;
+}
+
 void C2IgbaBlockPool::invalidate() {
     mValid = false;
 }
