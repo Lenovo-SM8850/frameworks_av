@@ -81,6 +81,10 @@ public:
         return C2_OK;
     }
 
+    virtual std::shared_ptr<C2IGBA> getIgba() override {
+        return mIgba;
+    }
+
 private:
     const std::shared_ptr<C2IGBA> mIgba;
 };

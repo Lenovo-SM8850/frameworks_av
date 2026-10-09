@@ -23,6 +23,10 @@
 
 class C2IgbaInterface;
 
+namespace aidl::android::hardware::media::c2 {
+class IGraphicBufferAllocator;
+}
+
 /**
  * Codec2-AIDL IGraphicBufferAllocator backed C2BlockPool
  *
@@ -64,6 +68,10 @@ public:
         C2MemoryUsage usage,
         std::shared_ptr<C2GraphicBlock> *block /* nonnull */,
         C2Fence *fence /* nonnull */) override;
+
+    // Keep this vendor extension after the existing virtuals for the stock ABI.
+    virtual std::shared_ptr<aidl::android::hardware::media::c2::IGraphicBufferAllocator>
+            getIgba();
 
     // Do we need this?
     void invalidate();
