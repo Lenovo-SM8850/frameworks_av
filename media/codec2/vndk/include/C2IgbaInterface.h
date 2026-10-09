@@ -23,6 +23,10 @@
 
 typedef struct AHardwareBuffer AHardwareBuffer;
 
+namespace aidl::android::hardware::media::c2 {
+class IGraphicBufferAllocator;
+}
+
 /**
  * c2aidl IGraphicBufferAllocator interface wrapper class.
  *
@@ -48,4 +52,8 @@ public:
      * This wraps media.c2 IGraphicBufferAllocator::deallocate interface.
      */
     virtual c2_status_t deallocate(uint64_t ahwbId, bool *deallocated) = 0;
+
+    // Preserve access to the original AIDL allocator for vendor block pool users.
+    virtual std::shared_ptr<aidl::android::hardware::media::c2::IGraphicBufferAllocator>
+            getIgba() { return nullptr; }
 };

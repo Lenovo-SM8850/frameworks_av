@@ -239,6 +239,10 @@ public:
         *deallocated = aidlRet;
         return C2_OK;
     };
+    virtual std::shared_ptr<C2IGBA> getIgba() override {
+        return mIgba;
+    }
+
 private:
 
     std::shared_ptr<C2IGBA> mIgba;
