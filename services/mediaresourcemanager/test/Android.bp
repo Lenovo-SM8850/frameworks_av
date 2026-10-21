@@ -101,3 +101,13 @@ cc_test {
         "-Werror",
     ],
 }
+
+cc_test {
+    name: "StartedJocCodecRegistry_test",
+    defaults: ["started_joc_codec_policy_defaults"],
+    host_supported: true,
+    srcs: ["StartedJocCodecRegistry_test.cpp"],
+    include_dirs: ["frameworks/av/services/mediaresourcemanager"],
+    cflags: ["-Wall", "-Werror"],
+    test_suites: ["general-tests"],
+}

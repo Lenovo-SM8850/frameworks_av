@@ -72,6 +72,7 @@ aidl_interface {
 
 cc_library {
     name: "libresourcemanagerservice",
+    defaults: ["started_joc_codec_policy_defaults"],
 
     srcs: [
         "ClientImportanceReclaimPolicy.cpp",
@@ -84,6 +85,7 @@ cc_library {
         "ResourceObserverService.cpp",
         "ResourceTracker.cpp",
         "ServiceLog.cpp",
+        "StartedJocCodecPublisher.cpp",
         "UidObserver.cpp",
 
         // TODO: convert to AIDL?
@@ -95,6 +97,8 @@ cc_library {
         "libaconfig_storage_read_api_cc",
         "libactivitymanager_aidl",
         "libbinder",
+        "libaudiomanager",
+        "av-types-aidl-cpp",
         "libbinder_ndk",
         "liblog",
         "libmedia",
@@ -128,4 +132,12 @@ cc_library {
         "libstats_media_metrics",
         "libstatssocket",
     ],
+}
+
+cc_defaults {
+    name: "started_joc_codec_policy_defaults",
+    cflags: select(soong_config_variable("media_codec_policy", "started_joc"), {
+        "dolby_eac3": ["-DSTARTED_JOC_DOLBY_POLICY"],
+        default: [],
+    }),
 }

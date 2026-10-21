@@ -24,6 +24,7 @@
 #include <dlfcn.h>
 #include <inttypes.h>
 #include <future>
+#include <optional>
 #include <random>
 #include <set>
 #include <string>
@@ -445,6 +446,7 @@ struct MediaCodec::ResourceManagerServiceProxy :
     void notifyClientCreated();
     void notifyClientStarted(ClientConfigParcel& clientConfig);
     void notifyClientStopped(ClientConfigParcel& clientConfig);
+    void stopStartedClient();
     void notifyClientConfigChanged(ClientConfigParcel& clientConfig);
 
     uid_t clientUid() const { return mUid; }
@@ -520,6 +522,7 @@ private:
 private:
     std::mutex  mLock;
     bool        mBinderDied = false;
+    std::optional<ClientConfigParcel> mStartedConfig;
     pid_t       mPid;
     uid_t       mUid;
     int         mImportance = 0;
@@ -658,7 +661,7 @@ std::shared_ptr<IResourceManagerService> MediaCodec::ResourceManagerServiceProxy
 }
 
 void MediaCodec::ResourceManagerServiceProxy::reRegisterAllResources_l() {
-    if (mMediaResourceParcel.empty()) {
+    if (mMediaResourceParcel.empty() && !mStartedConfig) {
         ALOGV("No resources to add");
         return;
     }
@@ -672,6 +675,7 @@ void MediaCodec::ResourceManagerServiceProxy::reRegisterAllResources_l() {
     std::copy(mMediaResourceParcel.begin(), mMediaResourceParcel.end(),
               std::back_inserter(resources));
     mService->addResource(getClientInfo(), mClient, resources);
+    if (mStartedConfig) mService->notifyClientStarted(*mStartedConfig);
 }
 
 void MediaCodec::ResourceManagerServiceProxy::BinderDiedCallback(void* cookie) {
@@ -748,13 +752,14 @@ void MediaCodec::ResourceManagerServiceProxy::removeResource(
 
 void MediaCodec::ResourceManagerServiceProxy::removeClient() {
     std::scoped_lock lock{mLock};
+    mStartedConfig.reset();
+    mMediaResourceParcel.clear();
     std::shared_ptr<IResourceManagerService> service = getService_l();
     if (service == nullptr) {
         ALOGW("Service isn't available");
         return;
     }
     service->removeClient(getClientInfo());
-    mMediaResourceParcel.clear();
 }
 
 void MediaCodec::ResourceManagerServiceProxy::markClientForPendingRemoval() {
@@ -794,18 +799,22 @@ void MediaCodec::ResourceManagerServiceProxy::notifyClientCreated() {
 void MediaCodec::ResourceManagerServiceProxy::notifyClientStarted(
         ClientConfigParcel& clientConfig) {
     std::scoped_lock lock{mLock};
+    if (mStartedConfig) return;
+    // Reconnection replays the previous state, so connect before caching this new start.
+    clientConfig.clientInfo = getClientInfo();
     std::shared_ptr<IResourceManagerService> service = getService_l();
+    mStartedConfig = clientConfig;
     if (service == nullptr) {
         ALOGW("Service isn't available");
         return;
     }
-    clientConfig.clientInfo = getClientInfo();
     service->notifyClientStarted(clientConfig);
 }
 
 void MediaCodec::ResourceManagerServiceProxy::notifyClientStopped(
         ClientConfigParcel& clientConfig) {
     std::scoped_lock lock{mLock};
+    mStartedConfig.reset();
     std::shared_ptr<IResourceManagerService> service = getService_l();
     if (service == nullptr) {
         ALOGW("Service isn't available");
@@ -813,6 +822,16 @@ void MediaCodec::ResourceManagerServiceProxy::notifyClientStopped(
     }
     clientConfig.clientInfo = getClientInfo();
     service->notifyClientStopped(clientConfig);
+}
+
+void MediaCodec::ResourceManagerServiceProxy::stopStartedClient() {
+    std::scoped_lock lock{mLock};
+    if (!mStartedConfig) return;
+    auto config = *mStartedConfig;
+    mStartedConfig.reset();
+    config.timeStamp = systemTime(SYSTEM_TIME_MONOTONIC) / 1000LL;
+    auto service = getService_l();
+    if (service != nullptr) service->notifyClientStopped(config);
 }
 
 void MediaCodec::ResourceManagerServiceProxy::notifyClientConfigChanged(
@@ -824,6 +843,7 @@ void MediaCodec::ResourceManagerServiceProxy::notifyClientConfigChanged(
         return;
     }
     clientConfig.clientInfo = getClientInfo();
+    if (mStartedConfig) mStartedConfig = clientConfig;
     service->notifyClientConfigChanged(clientConfig);
 }
 
@@ -5478,6 +5498,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                               mState, stateString(mState).c_str());
                         break;
                     }
+                    mResourceManagerProxy->removeClient();
                     setState(UNINITIALIZED);
 
                     if (mTracer) {
@@ -5494,7 +5515,6 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         mBatteryChecker->onClientRemoved();
                     }
 
-                    mResourceManagerProxy->removeClient();
                     mDetachedSurface.reset();
 
                     if (mReplyID != nullptr) {
@@ -7005,6 +7025,9 @@ status_t MediaCodec::queueCSDInputBuffer(size_t bufferIndex) {
 
 void MediaCodec::setState(State newState) {
     if (newState == INITIALIZED || newState == UNINITIALIZED) {
+        // Retract a retained start before formats and encoder flags are reset on fatal errors.
+        // Normal stop already cleared it; release keeps its existing metrics removal path.
+        mResourceManagerProxy->stopStartedClient();
         delete mSoftRenderer;
         mSoftRenderer = NULL;
 

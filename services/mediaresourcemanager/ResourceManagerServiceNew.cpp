@@ -144,6 +144,9 @@ Status ResourceManagerServiceNew::removeResource(const ClientInfoParcel& clientI
     mServiceLog->add(log);
 
     std::scoped_lock lock{mLock};
+    const int32_t trustedPid = !checkValid || mProcessInfo->isPidTrusted(pid)
+            ? pid : IPCThreadState::self()->getCallingPid();
+    removeStartedJocCodec_l(trustedPid, clientId);
     if (mResourceTracker->removeResource(clientInfo, checkValid)) {
         mResourceManagerMetrics->notifyClientReleased(clientInfo, checkValid);
     }
@@ -222,11 +225,13 @@ Status ResourceManagerServiceNew::notifyClientCreated(const ClientInfoParcel& cl
 }
 
 Status ResourceManagerServiceNew::notifyClientStarted(const ClientConfigParcel& clientConfig) {
+    updateStartedJocCodec(clientConfig, true);
     mResourceManagerMetrics->notifyClientStarted(clientConfig);
     return Status::ok();
 }
 
 Status ResourceManagerServiceNew::notifyClientStopped(const ClientConfigParcel& clientConfig) {
+    updateStartedJocCodec(clientConfig, false);
     mResourceManagerMetrics->notifyClientStopped(clientConfig);
     return Status::ok();
 }
@@ -496,6 +501,7 @@ std::shared_ptr<IResourceManagerClient> ResourceManagerServiceNew::getClient_l(
 }
 
 bool ResourceManagerServiceNew::removeClient_l(int pid, const int64_t& clientId) {
+    removeStartedJocCodec_l(pid, clientId);
     return mResourceTracker->removeClient(pid, clientId);
 }
 

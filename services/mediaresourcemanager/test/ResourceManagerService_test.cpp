@@ -91,6 +91,53 @@ private:
 public:
     ResourceManagerServiceTest(bool newRM = false) : ResourceManagerServiceTestBase(newRM) {}
 
+    void testStartedJocRegistry() {
+        ClientConfigParcel config;
+        config.clientInfo = {.pid = kTestPid1, .uid = kTestUid1,
+                .id = getId(mTestClient1), .name = "c2.dolby.eac3.decoder.eac3-joc"};
+        config.codecType = MediaResource::SubType::kSwAudioCodec;
+        // No registered death token means a start cannot create an immortal observation.
+        mService->notifyClientStarted(config);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+        mService->addResource(config.clientInfo, mTestClient1, {});
+        mService->notifyClientStarted(config);
+        mService->notifyClientStarted(config);
+        EXPECT_EQ(mService->mStartedJocCodecs.uids(), std::set<int32_t>({kTestUid1}));
+        mService->removeResource(config.clientInfo, std::vector<MediaResourceParcel>{});
+        EXPECT_FALSE(mService->mStartedJocCodecs.uids().empty());
+        mService->notifyClientStopped(config);
+        mService->notifyClientStopped(config);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+
+        auto wrongUid = config;
+        wrongUid.clientInfo.uid++;
+        mService->notifyClientStarted(wrongUid);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+        mService->notifyClientStarted(config);
+        auto death = mService->getResourceMap().at(kTestPid1)
+                .at(config.clientInfo.id).deathNotifier;
+        death->binderDied();
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+
+        mService->addResource(config.clientInfo, mTestClient1, {});
+        mService->notifyClientStarted(config);
+        {
+            std::scoped_lock lock{mService->mLock};
+            // Failed reclaim uses the virtual erasure path, bypassing ordinary release.
+            mService->removeClient_l(kTestPid1, config.clientInfo.id);
+        }
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+        mService->addResource(config.clientInfo, mTestClient1, {});
+        mService->notifyClientStarted(config);
+        mService->removeClient(wrongUid.clientInfo);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+        // An already missing resource record must not bypass registry cleanup.
+        mService->mStartedJocCodecs.start(kTestPid1, config.clientInfo.id, kTestUid1,
+                config.clientInfo.name, true);
+        mService->removeClient(config.clientInfo);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+    }
+
     void updateConfig(bool bSupportsMultipleSecureCodecs, bool bSupportsSecureWithNonSecureCodec) {
         std::vector<MediaResourcePolicyParcel> policies;
         policies.push_back(
@@ -2613,6 +2660,14 @@ TEST_F(ResourceManagerServiceNewTest, resourceAvailability) {
         GTEST_SKIP() << "Skipping the test as codec_availability_metrics isn't defined";
     }
     testTrackAvailableResources();
+}
+
+TEST_F(ResourceManagerServiceTest, startedJocRegistry) {
+    testStartedJocRegistry();
+}
+
+TEST_F(ResourceManagerServiceNewTest, startedJocRegistry) {
+    testStartedJocRegistry();
 }
 
 } // namespace android

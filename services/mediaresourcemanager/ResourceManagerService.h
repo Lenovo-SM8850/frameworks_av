@@ -31,6 +31,8 @@
 #include <utils/threads.h>
 
 #include "ResourceManagerServiceUtils.h"
+#include "StartedJocCodecRegistry.h"
+#include "StartedJocCodecPublisher.h"
 
 namespace android {
 
@@ -123,6 +125,12 @@ public:
                                      bool* _aidl_return) override;
 
 protected:
+    // Called with mLock held, before any resource-map early return.
+    void removeStartedJocCodec_l(int32_t pid, int64_t id);
+    void updateStartedJocCodec(const ClientConfigParcel& config, bool started);
+    StartedJocCodecRegistry mStartedJocCodecs;
+    sp<StartedJocCodecPublisher> mStartedJocPublisher;
+
     // To get notifications when a resource is added for the first time.
     void onFirstAdded(const MediaResourceParcel& res, uid_t uid);
     // To get notifications when a resource has been removed at last.
