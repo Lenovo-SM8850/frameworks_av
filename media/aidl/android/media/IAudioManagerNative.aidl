@@ -65,4 +65,7 @@ interface IAudioManagerNative {
      * @param event the mute event containing info about the mute
      */
     oneway void portMuteEvent(in int portId, in int event);
+
+    /** Replace the started JOC codec UID set owned by this media service incarnation. */
+    oneway void setStartedJocCodecUids(IBinder owner, long revision, in int[] uids);
 }

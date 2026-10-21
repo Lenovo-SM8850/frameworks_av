@@ -20,6 +20,7 @@
 #include <utils/Log.h>
 
 #include <android/binder_manager.h>
+#include <android/binder_libbinder.h>
 #include <android/binder_process.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
@@ -187,14 +188,25 @@ ResourceManagerService::ResourceManagerService(const sp<ProcessInfoInterface> &p
 //static
 void ResourceManagerService::instantiate() {
     std::shared_ptr<ResourceManagerService> service = Create();
+    auto owner = service->asBinder();
     binder_status_t status =
                         AServiceManager_addServiceWithFlags(
-                        service->asBinder().get(), getServiceName(),
+                        owner.get(), getServiceName(),
                         AServiceManager_AddServiceFlag::ADD_SERVICE_ALLOW_ISOLATED);
     if (status != STATUS_OK) {
         return;
     }
 
+    {
+        std::scoped_lock lock{service->mLock};
+        // The registered service holds the owner alive; a weak reference avoids a local cycle.
+        service->mStartedJocPublisher = sp<StartedJocCodecPublisher>::make(
+                AIBinder_toPlatformBinder(owner.get()));
+        service->mStartedJocPublisher->start();
+        if (!service->mStartedJocCodecs.uids().empty()) {
+            service->mStartedJocPublisher->update(service->mStartedJocCodecs.uids());
+        }
+    }
     std::shared_ptr<ResourceObserverService> observerService =
             ResourceObserverService::instantiate();
 
@@ -432,6 +444,7 @@ Status ResourceManagerService::removeResource(const ClientInfoParcel& clientInfo
                 pid, callingPid);
         pid = callingPid;
     }
+    removeStartedJocCodec_l(pid, clientId);
     PidResourceInfosMap::iterator found = mMap.find(pid);
     if (found == mMap.end()) {
         ALOGV("removeResource: didn't find pid %d for clientId %lld", pid, (long long) clientId);
@@ -661,6 +674,7 @@ std::shared_ptr<IResourceManagerClient> ResourceManagerService::getClient_l(
 }
 
 bool ResourceManagerService::removeClient_l(int pid, const int64_t& clientId) {
+    removeStartedJocCodec_l(pid, clientId);
     std::map<int, ResourceInfos>::iterator found = mMap.find(pid);
     if (found == mMap.end()) {
         ALOGV("%s: didn't find pid %d for clientId %lld", __func__, pid, (long long) clientId);
@@ -1093,12 +1107,47 @@ Status ResourceManagerService::notifyClientCreated(const ClientInfoParcel& clien
     return Status::ok();
 }
 
+void ResourceManagerService::updateStartedJocCodec(
+        const ClientConfigParcel& config, bool started) {
+    std::scoped_lock lock{mLock};
+    const auto& client = config.clientInfo;
+    if (!mProcessInfo->isPidUidTrusted(client.pid, client.uid)) return;
+    if (!started) {
+        removeStartedJocCodec_l(client.pid, client.id);
+        return;
+    }
+    const auto& map = getResourceMap();
+    auto process = map.find(client.pid);
+    if (process == map.end()) return;
+    auto entry = process->second.find(client.id);
+    if (entry == process->second.end()) return;
+    const auto& info = entry->second;
+    if (info.client == nullptr || info.deathNotifier == nullptr
+            || !AIBinder_isAlive(info.client->asBinder().get())
+            || info.uid != static_cast<uid_t>(client.uid)) return;
+    const bool audioDecoder = !config.isEncoder
+            && (config.codecType == MediaResource::SubType::kHwAudioCodec
+                || config.codecType == MediaResource::SubType::kSwAudioCodec);
+    if (mStartedJocCodecs.start(client.pid, client.id, info.uid, info.name, audioDecoder)
+            && mStartedJocPublisher != nullptr) {
+        mStartedJocPublisher->update(mStartedJocCodecs.uids());
+    }
+}
+
+void ResourceManagerService::removeStartedJocCodec_l(int32_t pid, int64_t id) {
+    if (mStartedJocCodecs.remove(pid, id) && mStartedJocPublisher != nullptr) {
+        mStartedJocPublisher->update(mStartedJocCodecs.uids());
+    }
+}
+
 Status ResourceManagerService::notifyClientStarted(const ClientConfigParcel& clientConfig) {
+    updateStartedJocCodec(clientConfig, true);
     mResourceManagerMetrics->notifyClientStarted(clientConfig);
     return Status::ok();
 }
 
 Status ResourceManagerService::notifyClientStopped(const ClientConfigParcel& clientConfig) {
+    updateStartedJocCodec(clientConfig, false);
     mResourceManagerMetrics->notifyClientStopped(clientConfig);
     return Status::ok();
 }
