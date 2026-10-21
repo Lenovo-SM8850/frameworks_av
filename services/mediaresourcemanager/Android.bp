@@ -84,6 +84,7 @@ cc_library {
         "ResourceObserverService.cpp",
         "ResourceTracker.cpp",
         "ServiceLog.cpp",
+        "StartedJocCodecPublisher.cpp",
         "UidObserver.cpp",
 
         // TODO: convert to AIDL?
@@ -95,6 +96,8 @@ cc_library {
         "libaconfig_storage_read_api_cc",
         "libactivitymanager_aidl",
         "libbinder",
+        "libaudiomanager",
+        "av-types-aidl-cpp",
         "libbinder_ndk",
         "liblog",
         "libmedia",
