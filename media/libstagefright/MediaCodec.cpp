@@ -5651,6 +5651,17 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             sp<AMessage> format;
             CHECK(msg->findMessage("format", &format));
 
+            // Configure a plain E-AC3 fallback with the MIME it advertises.
+            AString mime;
+            if (mCodecInfo != nullptr && !mCodecInfo->isEncoder()
+                    && format->findString("mime", &mime)
+                    && mime.equalsIgnoreCase(MEDIA_MIMETYPE_AUDIO_EAC3_JOC)
+                    && mCodecInfo->getCapabilitiesFor(MEDIA_MIMETYPE_AUDIO_EAC3_JOC) == nullptr
+                    && mCodecInfo->getCapabilitiesFor(MEDIA_MIMETYPE_AUDIO_EAC3) != nullptr) {
+                format = format->dup();
+                format->setString("mime", MEDIA_MIMETYPE_AUDIO_EAC3);
+            }
+
             // start with a copy of the passed metrics info for use in this run
             mediametrics_handle_t handle;
             CHECK(msg->findInt64("metrics", &handle));
