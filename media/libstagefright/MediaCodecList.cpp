@@ -485,6 +485,11 @@ void MediaCodecList::findMatchingCodecs(
         formatNoProfile->removeEntryByName(KEY_PROFILE);
         findMatchingCodecs(mime, encoder, flags, formatNoProfile, matches);
     }
+
+    // JOC streams can be decoded as E-AC3 when no JOC decoder is available.
+    if (matches->empty() && !encoder && !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_EAC3_JOC)) {
+        findMatchingCodecs(MEDIA_MIMETYPE_AUDIO_EAC3, encoder, flags, format, matches);
+    }
 }
 
 // static

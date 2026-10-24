@@ -4002,6 +4002,7 @@ status_t MPEG4Extractor::parseEAC3SpecificBox(off64_t offset) {
         }
     }
 
+    bool isJoc = false;
     if (br.numBitsLeft() != 0) {
         if (br.numBitsLeft() < 8) {
             delete[] chunk;
@@ -4019,6 +4020,7 @@ status_t MPEG4Extractor::parseEAC3SpecificBox(off64_t offset) {
             switch (i) {
                 case 0: {
                     unsigned complexity = br.getBits(8);
+                    isJoc = true;
                     ALOGV("Found a JOC stream with complexity = %d", complexity);
                 }break;
                 default: {
@@ -4027,7 +4029,8 @@ status_t MPEG4Extractor::parseEAC3SpecificBox(off64_t offset) {
             }
         }
     }
-    AMediaFormat_setString(mLastTrack->meta, AMEDIAFORMAT_KEY_MIME, MEDIA_MIMETYPE_AUDIO_EAC3);
+    AMediaFormat_setString(mLastTrack->meta, AMEDIAFORMAT_KEY_MIME,
+            isJoc ? MEDIA_MIMETYPE_AUDIO_EAC3_JOC : MEDIA_MIMETYPE_AUDIO_EAC3);
     AMediaFormat_setInt32(mLastTrack->meta, AMEDIAFORMAT_KEY_CHANNEL_COUNT, channelCount);
     AMediaFormat_setInt32(mLastTrack->meta, AMEDIAFORMAT_KEY_SAMPLE_RATE, sampleRate);
 
