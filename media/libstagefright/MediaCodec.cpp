@@ -84,6 +84,7 @@
 #include <media/stagefright/CCodec.h>
 #include <media/stagefright/CodecTrace.h>
 #include <media/stagefright/CryptoAsync.h>
+#include <media/stagefright/Eac3JocDetector.h>
 #include <media/stagefright/MediaCodec.h>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/MediaCodecList.h>
@@ -173,6 +174,8 @@ static const char *kCodecLatencyHist = "android.media.mediacodec.latency.hist"; 
 static const char *kCodecLatencyUnknown = "android.media.mediacodec.latency.unknown";
 static const char *kCodecQueueSecureInputBufferError = "android.media.mediacodec.queueSecureInputBufferError";
 static const char *kCodecQueueInputBufferError = "android.media.mediacodec.queueInputBufferError";
+// Cap the input buffers inspected for E-AC3 JOC (Atmos) per start.
+static const int32_t kMaxEac3JocBuffersToScan = 64;
 static const char *kCodecComponentColorFormat = "android.media.mediacodec.component-color-format";
 
 static const char *kCodecNumLowLatencyModeOn = "android.media.mediacodec.low-latency.on";  /* 0..n */
@@ -837,13 +840,14 @@ void MediaCodec::ResourceManagerServiceProxy::stopStartedClient() {
 void MediaCodec::ResourceManagerServiceProxy::notifyClientConfigChanged(
         ClientConfigParcel& clientConfig) {
     std::scoped_lock lock{mLock};
+    clientConfig.clientInfo = getClientInfo();
+    // Reconnect must replay the latest config, even if this update cannot be sent.
+    if (mStartedConfig) mStartedConfig = clientConfig;
     std::shared_ptr<IResourceManagerService> service = getService_l();
     if (service == nullptr) {
         ALOGW("Service isn't available");
         return;
     }
-    clientConfig.clientInfo = getClientInfo();
-    if (mStartedConfig) mStartedConfig = clientConfig;
     service->notifyClientConfigChanged(clientConfig);
 }
 
@@ -3016,6 +3020,9 @@ status_t MediaCodec::configure(
         const sp<IDescrambler> &descrambler,
         uint32_t flags) {
     ScopedTrace trace(ATRACE_TAG, "MediaCodec::configure#native");
+    if (mState == INITIALIZED) {
+        resetEac3JocDetection();
+    }
     // Update the codec importance.
     updateCodecImportance(format);
 
@@ -3851,6 +3858,8 @@ status_t MediaCodec::reset() {
 
     mFlags = 0;    // clear all flags
     mStickyError = OK;
+    mEac3JocDetectionArmed = false;
+    resetEac3JocDetection();
 
     // reset state not reset by setState(UNINITIALIZED)
     mDequeueInputReplyID = 0;
@@ -4627,6 +4636,36 @@ inline void MediaCodec::initClientConfigParcel(ClientConfigParcel& clientConfig)
     clientConfig.height = mHeight;
     clientConfig.timeStamp = systemTime(SYSTEM_TIME_MONOTONIC) / 1000LL;
     clientConfig.id = mCodecId;
+    // Keep the reported state while a flush starts a fresh detection pass.
+    clientConfig.immersiveAudio = mEac3JocReported;
+}
+
+void MediaCodec::resetEac3JocDetection(bool resetReportedState) {
+    mEac3JocDetectionResult = Eac3JocResult::kUnknown;
+    mEac3JocBuffersScanned = 0;
+    if (resetReportedState) mEac3JocReported = false;
+}
+
+void MediaCodec::maybeDetectEac3Joc(const sp<MediaCodecBuffer>& buffer, uint32_t flags) {
+    if (!mEac3JocDetectionArmed || mEac3JocDetectionResult != Eac3JocResult::kUnknown
+            || mState != STARTED) {
+        return;
+    }
+    if (flags & BUFFER_FLAG_CODECCONFIG) return;
+    if (mFlags & (kFlagIsSecure | kFlagUseBlockModel)) return;
+    // Stay armed after a decision so that the next start or flush scans again.
+    if (mEac3JocBuffersScanned >= kMaxEac3JocBuffersToScan) return;
+    ++mEac3JocBuffersScanned;
+    if (buffer == nullptr || buffer->size() == 0) return;
+    const Eac3JocResult result = detectEac3Joc(buffer->data(), buffer->size());
+    if (result == Eac3JocResult::kUnknown) return;
+    mEac3JocDetectionResult = result;
+    const bool immersiveAudio = result == Eac3JocResult::kJoc;
+    if (immersiveAudio == mEac3JocReported) return;
+    mEac3JocReported = immersiveAudio;
+    ClientConfigParcel clientConfig;
+    initClientConfigParcel(clientConfig);
+    mResourceManagerProxy->notifyClientConfigChanged(clientConfig);
 }
 
 void MediaCodec::stopCryptoAsync() {
@@ -5143,6 +5182,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         mResourceManagerProxy->addResource(resources);
                     }
                     // Notify the RM that the codec is in use (has been started).
+                    resetEac3JocDetection();
                     ClientConfigParcel clientConfig;
                     initClientConfigParcel(clientConfig);
                     mResourceManagerProxy->notifyClientStarted(clientConfig);
@@ -5705,6 +5745,14 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
             uint32_t flags;
             CHECK(msg->findInt32("flags", (int32_t *)&flags));
+
+            // Use the configured MIME, including a plain E-AC3 fallback.
+            AString configuredMime;
+            const bool configuredEac3 = format->findString("mime", &configuredMime)
+                    && configuredMime.equalsIgnoreCase(MEDIA_MIMETYPE_AUDIO_EAC3);
+            mEac3JocDetectionArmed = !(flags & CONFIGURE_FLAG_ENCODE)
+                    && mDomain == DOMAIN_AUDIO && configuredEac3;
+            resetEac3JocDetection();
 
             if (android::media::codec::provider_->null_output_surface_support()) {
                 if (obj == nullptr
@@ -6565,6 +6613,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
             mReplyID = replyID;
             // TODO: skip flushing if already FLUSHED
+            resetEac3JocDetection(false /* resetReportedState */);
             setState(FLUSHING);
             stopCryptoAsync();
             mCodec->signalFlush();
@@ -7028,6 +7077,8 @@ void MediaCodec::setState(State newState) {
         // Retract a retained start before formats and encoder flags are reset on fatal errors.
         // Normal stop already cleared it; release keeps its existing metrics removal path.
         mResourceManagerProxy->stopStartedClient();
+        mEac3JocDetectionArmed = false;
+        resetEac3JocDetection();
         delete mSoftRenderer;
         mSoftRenderer = NULL;
 
@@ -7462,6 +7513,10 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
                     err, errorDetailMsg != nullptr ? errorDetailMsg->c_str() : "unknown");
         }
     } else {
+        if (!c2Buffer && !memory && (mFlags & kFlagUseBlockModel) == 0
+                && !hasCryptoOrDescrambler()) {
+            maybeDetectEac3Joc(buffer, flags);
+        }
         err = mBufferChannel->queueInputBuffer(buffer);
         if (err != OK) {
             mediametrics_setInt32(mMetricsHandle, kCodecQueueInputBufferError, err);

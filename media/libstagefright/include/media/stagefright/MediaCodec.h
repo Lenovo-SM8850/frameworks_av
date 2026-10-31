@@ -31,6 +31,7 @@
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/Mutexed.h>
 #include <media/stagefright/CodecErrorLog.h>
+#include <media/stagefright/Eac3JocDetector.h>
 #include <media/stagefright/FrameRenderTracker.h>
 #include <media/stagefright/MediaHistogram.h>
 #include <media/stagefright/PlaybackDurationAccumulator.h>
@@ -556,6 +557,9 @@ private:
 
     inline void initClientConfigParcel(ClientConfigParcel& clientConfig);
 
+    void resetEac3JocDetection(bool resetReportedState = true);
+    void maybeDetectEac3Joc(const sp<MediaCodecBuffer>& buffer, uint32_t flags);
+
     sp<AMessage> mOutputFormat;
     sp<AMessage> mInputFormat;
     sp<AMessage> mCallback;
@@ -837,6 +841,12 @@ private:
     // An unique ID for the codec - Used by the metrics.
     uint64_t mCodecId = 0;
     bool     mIsHardware = false;
+
+    // E-AC3 JOC (Atmos) detection state for the ordinary E-AC3 decoder path.
+    bool mEac3JocDetectionArmed = false;
+    bool mEac3JocReported = false;
+    Eac3JocResult mEac3JocDetectionResult = Eac3JocResult::kUnknown;
+    int32_t mEac3JocBuffersScanned = 0;
 
     std::function<sp<CodecBase>(const AString &, const char *)> mGetCodecBase;
     std::function<status_t(const AString &, sp<MediaCodecInfo> *)> mGetCodecInfo;

@@ -243,6 +243,12 @@ cc_defaults {
     }),
 }
 
+filegroup {
+    name: "libstagefright_eac3joc_detector_src",
+    srcs: ["Eac3JocDetector.cpp"],
+    visibility: ["//frameworks/av/media/libstagefright/tests/eac3joc:__pkg__"],
+}
+
 cc_library {
     name: "libstagefright",
 
@@ -269,6 +275,7 @@ cc_library {
         "CodecErrorLog.cpp",
         "CodecTrace.cpp",
         "CryptoAsync.cpp",
+        "Eac3JocDetector.cpp",
         "FrameDecoder.cpp",
         "HevcUtils.cpp",
         "InterfaceUtils.cpp",

@@ -133,8 +133,21 @@ public:
         EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
         // An already missing resource record must not bypass registry cleanup.
         mService->mStartedJocCodecs.start(kTestPid1, config.clientInfo.id, kTestUid1,
-                config.clientInfo.name, true);
+                config.clientInfo.name, true, false);
         mService->removeClient(config.clientInfo);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+
+        // A plain E-AC3 decoder only counts after the bitstream is known to be JOC.
+        config.clientInfo.name = "c2.dolby.eac3.decoder.eac3";
+        config.immersiveAudio = false;
+        mService->addResource(config.clientInfo, mTestClient1, {});
+        mService->notifyClientStarted(config);
+        EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
+        config.immersiveAudio = true;
+        mService->notifyClientConfigChanged(config);
+        mService->notifyClientConfigChanged(config);
+        EXPECT_EQ(mService->mStartedJocCodecs.uids(), std::set<int32_t>({kTestUid1}));
+        mService->notifyClientStopped(config);
         EXPECT_TRUE(mService->mStartedJocCodecs.uids().empty());
     }
 

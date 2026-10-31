@@ -243,6 +243,7 @@ Status ResourceManagerServiceNew::notifyClientConfigChanged(
         std::scoped_lock lock{mLock};
         mResourceTracker->updateClientImportance(clientConfig.clientInfo);
     }
+    updateStartedJocCodec(clientConfig, true /* started */, true /* configChanged */);
     mResourceManagerMetrics->notifyClientConfigChanged(clientConfig);
     return Status::ok();
 }

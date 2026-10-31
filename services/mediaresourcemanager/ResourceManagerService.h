@@ -127,7 +127,8 @@ public:
 protected:
     // Called with mLock held, before any resource-map early return.
     void removeStartedJocCodec_l(int32_t pid, int64_t id);
-    void updateStartedJocCodec(const ClientConfigParcel& config, bool started);
+    void updateStartedJocCodec(const ClientConfigParcel& config, bool started,
+                               bool configChanged = false);
     StartedJocCodecRegistry mStartedJocCodecs;
     sp<StartedJocCodecPublisher> mStartedJocPublisher;
 

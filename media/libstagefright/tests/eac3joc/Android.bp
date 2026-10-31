@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: [
+        "frameworks_av_media_libstagefright_tests_license",
+    ],
+}
+
+cc_test_host {
+    name: "Eac3JocDetectorTest",
+    gtest: true,
+    srcs: [
+        "Eac3JocDetectorTest.cpp",
+        ":libstagefright_eac3joc_detector_src",
+    ],
+    include_dirs: [
+        "frameworks/av/media/libstagefright/include",
+    ],
+    cflags: [
+        "-Werror",
+        "-Wall",
+    ],
+}

@@ -1108,7 +1108,7 @@ Status ResourceManagerService::notifyClientCreated(const ClientInfoParcel& clien
 }
 
 void ResourceManagerService::updateStartedJocCodec(
-        const ClientConfigParcel& config, bool started) {
+        const ClientConfigParcel& config, bool started, bool configChanged) {
     std::scoped_lock lock{mLock};
     const auto& client = config.clientInfo;
     if (!mProcessInfo->isPidUidTrusted(client.pid, client.uid)) return;
@@ -1128,8 +1128,12 @@ void ResourceManagerService::updateStartedJocCodec(
     const bool audioDecoder = !config.isEncoder
             && (config.codecType == MediaResource::SubType::kHwAudioCodec
                 || config.codecType == MediaResource::SubType::kSwAudioCodec);
-    if (mStartedJocCodecs.start(client.pid, client.id, info.uid, info.name, audioDecoder)
-            && mStartedJocPublisher != nullptr) {
+    const bool changed = configChanged
+            ? mStartedJocCodecs.configChanged(client.pid, client.id, info.uid, info.name,
+                                             audioDecoder, config.immersiveAudio)
+            : mStartedJocCodecs.start(client.pid, client.id, info.uid, info.name,
+                                     audioDecoder, config.immersiveAudio);
+    if (changed && mStartedJocPublisher != nullptr) {
         mStartedJocPublisher->update(mStartedJocCodecs.uids());
     }
 }
@@ -1153,6 +1157,7 @@ Status ResourceManagerService::notifyClientStopped(const ClientConfigParcel& cli
 }
 
 Status ResourceManagerService::notifyClientConfigChanged(const ClientConfigParcel& clientConfig) {
+    updateStartedJocCodec(clientConfig, true /* started */, true /* configChanged */);
     mResourceManagerMetrics->notifyClientConfigChanged(clientConfig);
     return Status::ok();
 }

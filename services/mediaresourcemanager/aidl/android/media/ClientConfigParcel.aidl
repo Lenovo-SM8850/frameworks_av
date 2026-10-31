@@ -58,4 +58,7 @@ parcelable ClientConfigParcel {
      * - Correlate MediaCodecReported Atom for codec configuration parameters.
      */
     long id = 0;
+
+    // True when the codec decodes immersive audio (e.g. Dolby Atmos JOC).
+    boolean immersiveAudio = false;
 }
